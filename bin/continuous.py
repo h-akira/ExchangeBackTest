@@ -113,6 +113,7 @@ class MainObject:
     self.pips = 0
     self.start = None
     self.end = None
+    self.store = store
   def _get_incre(self, ASK=False):
     if self._get_len() == 0:
       return []
@@ -155,14 +156,17 @@ class MainObject:
     #   raise Exception("The settlement is invalid.")
   def _del(self):
     self._check_data()
-    if len(dts) > store:
-      self.dts = self.dts[-store:]
-      self.BID = self.BID[-store:]
-      self.ASK = self.ASK[-store:]
+    if len(self.dts) > self.store:
+      self.dts = self.dts[-self.store:]
+      self.BID = self.BID[-self.store:]
+      self.ASK = self.ASK[-self.store:]
   def _get_len(self):
-    self._check()
+    self._check_data()
     return len(self.dts)
   def just_before(self, dt, BID, ASK):
+    print(self._get_len())
+    print(self.pips)
+    print(self.position)
     # データーを追加する
     self.dts.append(dt)
     self.BID.append(BID["Open"])
@@ -187,6 +191,7 @@ class MainObject:
             raise Exception("The pair is invalid.")
           self.position = None
           self.settlement_counter += 1
+        if self.position is None:
           # 新規注文
           if incre[-1] > 0:
             self.position = "buy"
@@ -194,6 +199,7 @@ class MainObject:
           elif incre[-1] < 0:
             self.position = "sell"
             self.average = BID["Open"]
+    self._del()
 
 def main():
   options = parse_args()
