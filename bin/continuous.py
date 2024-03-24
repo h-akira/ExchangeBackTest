@@ -12,7 +12,6 @@ from ExchangePackage import chart
 from ExchangePackage import check_summer_time
 from MyPackage import cprint as print
 
-
 def time_and_timedelta_calculation(timeObj, timedeltaObj, minus=False):
   if minus:
     return (datetime.datetime.combine(datetime.date(2000,1,1), timeObj) - timedeltaObj).time()
@@ -127,6 +126,10 @@ class MainObject:
     self.start = None
     self.end = None
     self.store = store
+  def print_info(self):
+    print("PAIR :",self.pair)
+    print("START:",self.start)
+    print("END  :",self.end)
   def _pips_add(self, pips):
     if pips > 0:
       self.pips["profit"] += pips
@@ -161,9 +164,6 @@ class MainObject:
       diff = datetime.timedelta(hours=6)
     else:
       diff = datetime.timedelta(hours=7)
-    # print(f"start: {self.start}, end: {self.end}, dt: {dt.time()}")
-    # print(f"start: {time_and_timedelta_calculation(self.start, diff, minus=True)}, end: {time_and_timedelta_calculation(self.end, diff, minus=True)}, dt: {(dt-diff).time()}")
-    # if self.start-diff <= (dt-diff).time() <= self.end-diff:
     if time_and_timedelta_calculation(self.start, diff, minus=True) <= (dt-diff).time() <= time_and_timedelta_calculation(self.end, diff, minus=True):
       return True
     else:
@@ -186,10 +186,29 @@ class MainObject:
   def _get_len(self):
     self._check_data()
     return len(self.dts)
+  def _settlement(self, BID, ASK, allow_no_position=False):
+    if self.position is None:
+      if not allow_no_position:
+        raise Exception("The position is None.")
+    else:
+      # 決済
+      if self.position == "buy":
+        diff = self.BID[-1] - self.average
+      elif self.position == "sell":
+        diff = self.average - self.ASK[-1]
+      else:
+        raise Exception("The position is invalid.")
+      if self.pair in ["USDJPY", "EURJPY", "GBPJPY"]:
+        # self.pips += diff * 100
+        self._pips_add(diff * 100)
+      elif self.pair in ["EURUSD"]:
+        # self.pips += diff * 10000
+        self._pips_add(diff * 10000)
+      else:
+        raise Exception("The pair is invalid.")
+      self.position = None
+      self.settlement_counter += 1
   def just_before(self, dt, BID, ASK):
-    # print(self._get_len())
-    # print(self.pips)
-    # print(self.position)
     # データーを追加する
     self.dts.append(dt)
     self.BID.append(BID["Open"])
@@ -201,23 +220,7 @@ class MainObject:
       else:
         incre = self._get_incre()
         if incre[-2]*incre[-1] < 0 and self.position is not None:
-          # 決済
-          if self.position == "buy":
-            diff = self.BID[-1] - self.average
-          elif self.position == "sell":
-            diff = self.average - self.ASK[-1]
-          else:
-            raise Exception("The position is invalid.")
-          if self.pair in ["USDJPY", "EURJPY", "GBPJPY"]:
-            # self.pips += diff * 100
-            self._pips_add(diff * 100)
-          elif self.pair in ["EURUSD"]:
-            # self.pips += diff * 10000
-            self._pips_add(diff * 10000)
-          else:
-            raise Exception("The pair is invalid.")
-          self.position = None
-          self.settlement_counter += 1
+          self._settlement(BID, ASK)
         if self.position is None:
           # 新規注文
           if incre[-1] > 0:
@@ -227,39 +230,36 @@ class MainObject:
             self.position = "sell"
             self.average = BID["Open"]
     else:
-      # print("The time is not in the range.")
-      pass
+      self._settlement(BID, ASK, allow_no_position=True)
     self._del()
   def print_result(self):
     print("Result(pips):")
+    print("  Count :", self.settlement_counter)
     print("  Profit:", self.pips["profit"])
     print("  Loss  :", self.pips["loss"])
     print("  Total :", self.pips["total"])
-    print("  Rate  : {:.2f}%".format(self.pips["profit"] / (self.pips["profit"] + self.pips["loss"]) * 100))
+    print("  Rate  : {:.2f}%".format(self.pips["profit"] / (self.pips["profit"] + self.pips["loss"]) * 100), color="RED")
 
 def main():
   options = parse_args()
   pair="USDJPY"
   # pair="EURJPY"
+  # pair="GBPJPY"
   # pair="EURUSD"
   start_date = datetime.date(2023, 1, 1) 
   end_date = datetime.date(2024, 3, 1)
   DP = DataProvider(pair, start_date, end_date, rule="15T")
   DP.print_info()
   MO = MainObject(pair=pair)
-  MO.set_time(datetime.time(10, 0), datetime.time(2, 0))
+  MO.set_time(datetime.time(11, 0), datetime.time(23, 0))
+  MO.print_info()
   while True:
     try:
       NEXT = DP.get_next()
     except StopIteration:
       break
     MO.just_before(NEXT["dt"], NEXT["BID"], NEXT["ASK"])
-  # print("pips:", MO.pips)
   MO.print_result()
-  # data = DP.get_next()
-  # print(data["dt"])
-  # print(data["dt"].__class__)
-  
 
 if __name__ == '__main__':
   main()
