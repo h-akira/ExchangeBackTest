@@ -12,6 +12,13 @@ from ExchangePackage import chart
 from ExchangePackage import check_summer_time
 from MyPackage import cprint as print
 
+
+def time_and_timedelta_calculation(timeObj, timedeltaObj, minus=False):
+  if minus:
+    return (datetime.datetime.combine(datetime.date(2000,1,1), timeObj) - timedeltaObj).time()
+  else:
+    return (datetime.datetime.combine(datetime.date(2000,1,1), timeObj) + timedeltaObj).time()
+
 def parse_args():
   import argparse
   parser = argparse.ArgumentParser(description="""\
@@ -97,7 +104,8 @@ class DataProvider:
     print("  Close-Openの合計:", self.df_ASK["Close"].sum() - self.df_ASK["Open"].sum())
 
 class MainObject:
-  def __init__(self, store = 100):
+  def __init__(self, pair, store = 100):
+    self.pair = pair
     self.dts = []
     self.BID = []  # open
     self.ASK = []  # open
@@ -110,20 +118,31 @@ class MainObject:
     self.stop = None
     self.ifd_limit = None
     self.ifd_stop = None
-    self.pips = 0
+    # self.pips = 0
+    self.pips = {
+      "total": 0,
+      "profit": 0,
+      "loss": 0
+    }
     self.start = None
     self.end = None
     self.store = store
+  def _pips_add(self, pips):
+    if pips > 0:
+      self.pips["profit"] += pips
+    elif pips < 0:
+      self.pips["loss"] -= pips
+    self.pips["total"] += pips
   def _get_incre(self, ASK=False):
     if self._get_len() == 0:
       return []
     else:
       incre = [None]
-      for i in range(1, _get_len()):
+      for i in range(1, self._get_len()):
         if ASK:
           incre.append(self.ASK[i] - self.ASK[i-1])
         else:
-          incre.apend(self.BID[i] - self.BID[i-1])
+          incre.append(self.BID[i] - self.BID[i-1])
       return incre
   def set_time(self, start:datetime.time, end:datetime.time):
     self.start = start
@@ -132,7 +151,8 @@ class MainObject:
       raise Exception("The start and end are the same.")
   def _check_time(self, dt=None):
     if self.start == self.end == None:
-      return False
+      # 設定されていない場合は常にTrue
+      return True
     # dtがNoneの場合はself.dtsの最終日時を使う
     if dt is None:
       dt = self.dts[-1]
@@ -141,7 +161,10 @@ class MainObject:
       diff = datetime.timedelta(hours=6)
     else:
       diff = datetime.timedelta(hours=7)
-    if self.start <= (dt-diff).time() <= self.end:
+    # print(f"start: {self.start}, end: {self.end}, dt: {dt.time()}")
+    # print(f"start: {time_and_timedelta_calculation(self.start, diff, minus=True)}, end: {time_and_timedelta_calculation(self.end, diff, minus=True)}, dt: {(dt-diff).time()}")
+    # if self.start-diff <= (dt-diff).time() <= self.end-diff:
+    if time_and_timedelta_calculation(self.start, diff, minus=True) <= (dt-diff).time() <= time_and_timedelta_calculation(self.end, diff, minus=True):
       return True
     else:
       return False
@@ -164,29 +187,33 @@ class MainObject:
     self._check_data()
     return len(self.dts)
   def just_before(self, dt, BID, ASK):
-    print(self._get_len())
-    print(self.pips)
-    print(self.position)
+    # print(self._get_len())
+    # print(self.pips)
+    # print(self.position)
     # データーを追加する
     self.dts.append(dt)
     self.BID.append(BID["Open"])
     self.ASK.append(ASK["Open"])
     # BIDとASKは辞書型でOpen, Close, High, Low, Diffを持つ
     if self._check_time():
-      if get_len() <= 1:
+      if self._get_len() <= 1:
         print("The length of the list is not enough.")
       else:
         incre = self._get_incre()
-        if incre[-2]*incre[-1] < 0:
+        if incre[-2]*incre[-1] < 0 and self.position is not None:
           # 決済
           if self.position == "buy":
             diff = self.BID[-1] - self.average
           elif self.position == "sell":
             diff = self.average - self.ASK[-1]
+          else:
+            raise Exception("The position is invalid.")
           if self.pair in ["USDJPY", "EURJPY", "GBPJPY"]:
-            self.pips += diff * 100
+            # self.pips += diff * 100
+            self._pips_add(diff * 100)
           elif self.pair in ["EURUSD"]:
-            self.pips += diff * 10000
+            # self.pips += diff * 10000
+            self._pips_add(diff * 10000)
           else:
             raise Exception("The pair is invalid.")
           self.position = None
@@ -199,7 +226,16 @@ class MainObject:
           elif incre[-1] < 0:
             self.position = "sell"
             self.average = BID["Open"]
+    else:
+      # print("The time is not in the range.")
+      pass
     self._del()
+  def print_result(self):
+    print("Result(pips):")
+    print("  Profit:", self.pips["profit"])
+    print("  Loss  :", self.pips["loss"])
+    print("  Total :", self.pips["total"])
+    print("  Rate  : {:.2f}%".format(self.pips["profit"] / (self.pips["profit"] + self.pips["loss"]) * 100))
 
 def main():
   options = parse_args()
@@ -210,7 +246,7 @@ def main():
   end_date = datetime.date(2024, 3, 1)
   DP = DataProvider(pair, start_date, end_date, rule="15T")
   DP.print_info()
-  MO = MainObject()
+  MO = MainObject(pair=pair)
   MO.set_time(datetime.time(10, 0), datetime.time(2, 0))
   while True:
     try:
@@ -218,7 +254,8 @@ def main():
     except StopIteration:
       break
     MO.just_before(NEXT["dt"], NEXT["BID"], NEXT["ASK"])
-  print("pips:", MO.pips)
+  # print("pips:", MO.pips)
+  MO.print_result()
   # data = DP.get_next()
   # print(data["dt"])
   # print(data["dt"].__class__)
